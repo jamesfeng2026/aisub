@@ -1,0 +1,28 @@
+node_modules
+*.log
+.next
+app
+dist
+.idea
+.DS_Store
+.vscode
+.env
+.env.*
+docs/.docusaurus
+.claude
+.cursor
+.husky
+Project
+sample
+.specs/
+.agents/
+# whisper.cpp 原生 addon 按平台体积大且因平台而异，改为按需 fetch（见 scripts/fetch-whisper-addon.mjs），不入库。
+extraResources/addons/*.node
+extraResources/py-base/
+extraResources/sherpa/native/
+.superpowers/
+.longgap/
+# TypeScript 增量构建缓存（构建产物，不入库）
+*.tsbuildinfo
+# 忽略 Continue 插件的配置文件
+config.yaml

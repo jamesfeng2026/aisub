@@ -1,0 +1,347 @@
+{
+  "pageTitle": {
+    "generate-translate": "Video → bilingual subtitles",
+    "generate": "Video → original subtitles",
+    "translate": "Translate existing subtitles",
+    "pipelineDubCompose": "Video → dubbed final cut",
+    "pipelineCompose": "Video → subtitled final cut",
+    "pipelineDub": "Video → dubbing",
+    "pipelineDubSubtitle": "Subtitles → dubbing"
+  },
+  "snapshotBar": {
+    "fixedTip": "Created via the wizard — the configuration was locked in at creation and runs with the task. To change it, start a new task from the launchpad.",
+    "composeHard": "Burned-in subtitles",
+    "composeSoft": "Soft subtitles",
+    "composeNone": "No subtitles",
+    "qualityOriginal": "Original quality",
+    "qualityHigh": "High quality",
+    "qualityStandard": "Standard quality",
+    "encoderHardware": "Hardware accel"
+  },
+  "wizard": {
+    "filesTitle": "Step 1 · Add files",
+    "importFiles": "Import video / subtitles",
+    "dropHint": "Drag video or subtitle files here, or use the button in the top-right",
+    "detectedMedia": "{{count}} video/audio file(s) detected",
+    "detectedSubtitle": "{{count}} subtitle file(s) detected",
+    "detectedPaired": "{{media}} video/audio file(s) · {{paired}} subtitle pair(s)",
+    "pairHint": "Add videos together with subtitles to pair them by name automatically (skips transcription); pick manually on a video row when names differ",
+    "pairSelectPlaceholder": "Select subtitle",
+    "pairBrowse": "Pick subtitle from disk",
+    "pairTxtUnsupported": "txt subtitles have no timeline and cannot be paired",
+    "pairAttached": "Paired",
+    "pairUnmatched": "Not paired — will be ignored",
+    "removeFile": "Remove",
+    "goalsTitle": "Step 2 · What I want",
+    "goal": {
+      "subtitle": "Subtitles",
+      "subtitleDesc": "Transcribe subtitles from the video",
+      "translate": "Translated subtitles",
+      "translateDesc": "Translate subtitles into a target language",
+      "dub": "Dubbing",
+      "dubDesc": "Read the subtitles with an AI voice",
+      "video": "Final video",
+      "videoDesc": "Compose subtitles (and dubbing) into the video"
+    },
+    "goalSubtitleHave": "You added subtitle files",
+    "goalSubtitlePaired": "Uses your matching subtitles — transcription is skipped",
+    "goalSubtitleAlways": "Video tasks always produce subtitles",
+    "goalVideoNeedsMedia": "Requires video input to compose",
+    "chainLabel": "Workflow:",
+    "chainEmpty": "Pick goals above to preview the workflow",
+    "subtitleConfigTitle": "Subtitle settings",
+    "dubConfigTitle": "Dubbing settings",
+    "dubEngine": "Engine",
+    "dubEnginePlaceholder": "Select engine",
+    "dubVoice": "Voice",
+    "dubVoicePlaceholder": "Select voice",
+    "dubSpeed": "Speed",
+    "notReady": "not ready",
+    "dubBillingHint": "Cloud dubbing bills by characters; cost depends on the final subtitle text",
+    "composeConfigTitle": "Final video settings",
+    "composeSubtitle": "Subtitles",
+    "composeHard": "Burn into video (recommended)",
+    "composeSoft": "Soft subtitles (toggleable, MKV)",
+    "composeNone": "No subtitles (dub track only)",
+    "composeStyle": "Subtitle style",
+    "composeStyleGroupSystem": "Built-in presets",
+    "composeStyleGroupMine": "My styles",
+    "composeQuality": "Export quality",
+    "composeEncoder": "Encoder",
+    "composeEncoderUnavailable": "(unavailable on this device)",
+    "composeAudioHint": "The dub track will replace the original audio automatically",
+    "composeStyleHint": "Fine-tune styles in the compose workbench and save them as my styles. ",
+    "composeStyleLink": "Adjust style",
+    "gatesTitle": "Manual review (optional)",
+    "gateSubtitle": "Subtitle review",
+    "gateSubtitleDesc": "Pause after subtitles for your check before dubbing/composing",
+    "gateDubbing": "Dub review",
+    "gateDubbingDesc": "Pause after dubbing for a listen before composing",
+    "gatesHint": "You'll be notified at each stop; release to continue automatically. Turn both off for fully automatic.",
+    "blockNoFiles": "Add the files to process first",
+    "blockNoModel": "No speech model available yet",
+    "blockNoProvider": "Translation service is not configured",
+    "blockNoTts": "Dubbing engine is not ready",
+    "blockVideoNeedsMedia": "Final video needs video input — uncheck it or add video files",
+    "blockUnpairedMedia": "{{count}} video(s) have no subtitle paired — pick one on the video row, add files, or remove them",
+    "blockNoGoal": "Pick at least one goal",
+    "blockRefineFollow": "AI refine cannot follow the translation service (translation is off or not an AI provider) — open Segmentation & Refine in the toolbar and pick a provider explicitly",
+    "blockRefineProviderInvalid": "The selected AI refine provider is unavailable (missing or not configured) — pick another one",
+    "goConfigure": "Configure",
+    "readyHint": "Ready: {{count}} file(s) will be processed automatically",
+    "clearFiles": "Clear list",
+    "start": "Start",
+    "recipe": {
+      "save": "Save as recipe",
+      "dialogTitle": "Save as Recipe",
+      "dialogDesc": "Save the current goals and settings as a recipe — reuse it from the Launchpad with one click or a file drop.",
+      "namePlaceholder": "Recipe name, e.g. English video → Chinese dubbed film",
+      "cancel": "Cancel",
+      "confirm": "Save",
+      "saved": "Recipe \"{{name}}\" saved — find it on the Launchpad",
+      "applied": "Recipe \"{{name}}\" applied"
+    }
+  },
+  "backToLaunchpad": "Back to task picker",
+  "newTaskHint": "New task · saved to recent tasks once files are added",
+  "renameTask": "Rename task",
+  "configBar": {
+    "model": "Speech model",
+    "sourceLanguage": "Video language",
+    "subtitleSourceLanguage": "Source language",
+    "targetLanguage": "Translate to",
+    "provider": "Translation service",
+    "style": "Output content",
+    "format": "Subtitle format"
+  },
+  "notConfigured": " (not configured)",
+  "providerGroup": {
+    "configured": "Configured",
+    "notConfigured": "Others (not configured)"
+  },
+  "skippedDuplicates": "Skipped {{count}} duplicate file(s)",
+  "goDownloadModel": "Download a model",
+  "goConfigureProvider": "Set up a translation service",
+  "advanced": "Advanced options",
+  "advancedDesc": "Details you rarely change — the defaults are best practice",
+  "outcome": {
+    "label": "Subtitle effect",
+    "recommended": "Recommended",
+    "accurate": {
+      "title": "Most accurate text",
+      "desc": "Finest segmentation and the most complete punctuation; keeps each sentence as faithfully as possible. May occasionally add a stray line over silence/background noise.",
+      "scene": "Best for lectures, interviews, talking-head videos where complete text matters most"
+    },
+    "balanced": {
+      "title": "Balanced",
+      "desc": "Complete yet clean text with a stable timeline; stray lines over silence are basically gone — a safe choice for most videos.",
+      "scene": "Best for most videos; pick this if unsure"
+    },
+    "clean": {
+      "title": "Cleanest & most stable",
+      "desc": "Suppresses repeats and hallucinated lines most aggressively with the most restrained text; may drop some unclear speech.",
+      "scene": "Best for long videos or material with music / applause / long silence"
+    },
+    "custom": {
+      "title": "Custom",
+      "desc": "Manually tune context length, VAD, repetition reduction and other low-level parameters.",
+      "sectionTitle": "Custom parameters",
+      "sherpaNote": "For the current engine (FunASR / Qwen / FireRed), VAD is always on and there is no context-length / repetition concept. To fine-tune VAD sensitivity, use the Settings page."
+    },
+    "compare": {
+      "toggle": "See how the effects differ",
+      "caption": "Roughly how the same speech (with a short silence at the end) appears at each level:",
+      "accurate": "Today, let's go over this new feature. Thanks for watching.",
+      "balanced": "Today let's go over this new feature.",
+      "clean": "Today let's go over this new feature"
+    }
+  },
+  "section": {
+    "recognition": "Transcription",
+    "output": "Output & saving",
+    "execution": "Execution"
+  },
+  "vad": {
+    "label": "Voice activity detection (VAD)",
+    "on": "Faster and steadier: the built-in whisper engine only transcribes inside detected speech, skipping silence/background noise and greatly reducing repeated or hallucinated lines there; lines are aligned token-by-token to the speech segments, so the timeline hugs the speech and stays stable.",
+    "off": "Most complete text: the built-in whisper engine segments more finely with fuller punctuation (recommended for short/medium files and Chinese); stray lines over silence are curbed by an energy fallback; other engines such as faster-whisper may still produce repeated or hallucinated lines over silence/music.",
+    "hint": "Turn off for the most complete text and finest segmentation; keep on for the steadiest timeline and fewest stray lines over silence. This is a global setting and affects all tasks."
+  },
+  "reduceRepetition": {
+    "label": "Reduce repetition / hallucinated lines",
+    "on": "On: drops previous-text conditioning and suppresses repeats, greatly reducing looped lines over silence/repetition; coherence on clean speech may drop slightly.",
+    "off": "Off: engine defaults (keeps cross-segment coherence); long videos or silence may produce repeated or hallucinated lines.",
+    "hint": "Turn on when subtitles loop or repeat heavily. Global setting; applies to both faster-whisper and whisper.cpp."
+  },
+  "fasterWhisperAdvanced": {
+    "title": "Advanced decoding parameters",
+    "summary": "Optional; leave blank to use engine defaults",
+    "description": "Applies only to the current faster-whisper task. Values are type- and range-checked before dispatch. Blank fields send no overrides and preserve the engine's default strategy.",
+    "runtimeNote": "Requires the latest faster-whisper runtime with advanced-parameter forwarding. Older runtimes may ignore some settings; check for updates in Resources → Engines.",
+    "rangeError": "Enter a number between {{min}} and {{max}}",
+    "integerRangeError": "Enter a whole number between {{min}} and {{max}}",
+    "reset": "Reset all to engine defaults",
+    "fields": {
+      "beam_size": {
+        "label": "Beam size",
+        "placeholder": "Engine default: 5",
+        "hint": "Whole number from 1–20. Higher values can improve decoding stability at the cost of more computation and time."
+      },
+      "best_of": {
+        "label": "Best of",
+        "placeholder": "Engine default: 5",
+        "hint": "Whole number from 1–20. Keeps more candidates when sampling above zero temperature; higher values cost more computation."
+      },
+      "temperature": {
+        "label": "Sampling temperature",
+        "placeholder": "Engine default: adaptive 0.0 → 1.0 fallback",
+        "hint": "Range 0–1. Higher is more random; a single value replaces the engine's default multi-temperature fallback sequence."
+      },
+      "compression_ratio_threshold": {
+        "label": "Compression ratio threshold",
+        "placeholder": "Engine default: 2.4",
+        "hint": "Range 0–10. Decoding falls back when text compression exceeds this value; low values may cause more retries."
+      },
+      "log_prob_threshold": {
+        "label": "Average log-probability threshold",
+        "placeholder": "Engine default: -1.0",
+        "hint": "Range -5–0. Decoding falls back when the average log probability is below this value."
+      },
+      "no_speech_threshold": {
+        "label": "No-speech threshold",
+        "placeholder": "Engine default: 0.6",
+        "hint": "Range 0–1. Works with the log-probability threshold to skip no-speech segments; lower values skip more readily."
+      }
+    }
+  },
+  "subtitleLength": {
+    "label": "Line breaking",
+    "modeSmart": "Standard segmentation (default)",
+    "modeUnlimited": "No length limit",
+    "modeCustom": "Custom length limit",
+    "modeAi": "AI semantic segmentation (human-like)",
+    "hintSmart": "Splits lines at speech pauses and punctuation, keeping each subtitle at a readable length. Free and works out of the box.",
+    "hintUnlimited": "Split only at speech pauses and punctuation. Lines are never force-split by length and may run long.",
+    "hintCustom": "Lines over the limit are split at punctuation or word boundaries, never inside a word.",
+    "hintAi": "The AI breaks lines by meaning — numbers and fixed phrases are never cut by pauses. Requires an AI provider; falls back to standard segmentation on failure."
+  },
+  "chinesePunctuation": {
+    "label": "Strip Chinese punctuation",
+    "hint": "Replace Chinese punctuation (，。、？！ etc.) in Chinese subtitles with spaces and trim trailing spaces for cleaner subtitles. Applies to the source when the source language is Chinese, and to the translation when the target is Chinese."
+  },
+  "refine": {
+    "provider": {
+      "label": "Refine provider",
+      "follow": "Follow translation service (current: {{name}})",
+      "followUnavailable": "Follow translation service (unresolvable)",
+      "followBlocked": "Translation is off or not an AI provider — pick an AI provider explicitly.",
+      "hint": "Shared by AI segmentation and correction. Defaults to following the translation service; you can also pick a different one (e.g. a large model for translation, local Ollama for refining)."
+    },
+    "approxNote": "The current transcription engine has no word-level timestamps; AI segmentation will use an approximate timeline (proportional interpolation within each cue).",
+    "summary": {
+      "segmentation": "Semantic split",
+      "correction": "Correction"
+    },
+    "control": {
+      "label": "Line break & refine",
+      "title": "Line break & refine",
+      "intro": "Choose how lines break, and whether AI should polish the text. AI features fall back automatically on failure — never worse than off.",
+      "state": {
+        "smart": "Standard",
+        "unlimited": "No limit",
+        "custom": "≤ {{n}} chars",
+        "ai": "AI split",
+        "corrSuffix": " · Fix"
+      },
+      "corrLabel": "AI text correction",
+      "corrHint": "Fix homophones and typos, remove fillers like \"um / uh\", normalize punctuation and casing — timing stays untouched.",
+      "maxCharsLabel": "Max length per line",
+      "maxCharsPlaceholder": "Empty = smart default (~20 CJK chars)",
+      "maxCharsHint": "CJK characters count as 2 (40 ≈ 20 Chinese characters), Latin counts per character. Over-long lines split safely at word boundaries."
+    }
+  },
+  "stage": {
+    "extract": "Extract",
+    "transcribe": "Transcribe",
+    "refine": "Refine",
+    "translate": "Translate",
+    "dubbing": "Dub",
+    "compose": "Compose"
+  },
+  "gate": {
+    "subtitle": "Subtitle review",
+    "dubbing": "Dub review",
+    "reviewBadge": "Needs review",
+    "reviewTooltip": "This file is waiting for your review; it continues automatically once released",
+    "review": "Review",
+    "inspectDubbing": "Check dubbing",
+    "release": "Release",
+    "releaseAndNext": "Release & next",
+    "releaseAndFinish": "Release & continue",
+    "inspectorLabel": "Subtitle review · {{index}} of {{total}}",
+    "barSubtitle": "{{count}} file(s) waiting for subtitle review",
+    "barDubbing": "{{count}} file(s) waiting for dub review",
+    "reviewOneByOne": "Review one by one",
+    "releaseAll": "Release all",
+    "releaseAllTitle": "Release all?",
+    "releaseAllDesc": "{{count}} file(s) will skip review and continue processing (dubbing/composing may take time and incur cost).",
+    "releaseAllConfirm": "Release all",
+    "releaseAllCancel": "Cancel"
+  },
+  "row": {
+    "cancelling": "Cancelling… interrupting transcription",
+    "proofread": "Proofread",
+    "openFolder": "Show in folder",
+    "retry": "Retry",
+    "remove": "Remove",
+    "embeddedSubtitle": "Extracted from embedded subtitles",
+    "proofreadTxtUnsupported": "TXT files do not include timing, so they cannot be proofread here. Generate SRT/VTT/ASS for proofreading, then export plain text after proofreading.",
+    "proofreadTxtUnsupportedShort": "TXT not supported"
+  },
+  "waiting": "Waiting",
+  "interrupted": "Interrupted by app restart — retry to continue",
+  "completion": {
+    "title": "{{done}} files completed",
+    "sampleTitle": "Sample done — your first subtitle is ready!",
+    "sampleHint": "Open it in proofread, or head back to the launchpad to process your own files",
+    "backHome": "Back to launchpad",
+    "failed": "{{failed}} failed",
+    "goProofread": "Proofread",
+    "goMerge": "Burn into video",
+    "goDubbing": "Dub it",
+    "openFolder": "Open folder",
+    "retryFailed": "Retry failed",
+    "allFailedTitle": "All {{failed}} files failed",
+    "someFailedTitle": "{{failed}} file(s) failed",
+    "dismiss": "Dismiss"
+  },
+  "logs": {
+    "title": "Activity log (this task)",
+    "clear": "Clear",
+    "copy": "Copy",
+    "empty": "No logs yet"
+  },
+  "empty": {
+    "dragMedia": "You can also drop media files or folders anywhere on this page",
+    "dragSubtitle": "You can also drop subtitle files or folders anywhere on this page",
+    "mediaFormats": "Supports MP4 / MKV / MOV / MP3 / WAV and 24+ more video & audio formats",
+    "subtitleFormats": "Supports SRT / VTT / ASS / SSA / LRC subtitles",
+    "step1": "Import files",
+    "step2": "Check the configuration",
+    "step2Desc": "Pick engine, model and languages in the config bar above; advanced options are top right",
+    "step3": "Start the task",
+    "step3Desc": "Hit Start in the bottom-right corner to batch-process with live progress"
+  },
+  "import": "Import",
+  "clearList": "Clear list",
+  "taskCount": "{{count}} tasks",
+  "view": {
+    "list": "List view",
+    "grid": "Grid view"
+  },
+  "listCleared": "File list cleared",
+  "meta": {
+    "etaMin": "~{{min}} min left",
+    "etaLessMin": "Almost done"
+  }
+}

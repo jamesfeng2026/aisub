@@ -1,0 +1,98 @@
+appId: com.example.smartsub
+productName: SmartSub
+copyright: Copyright © 2024 buxuku
+directories:
+  output: dist
+  buildResources: resources
+files:
+  - from: .
+    filter:
+      - package.json
+      - app
+publish:
+  - provider: github
+generateUpdatesFilesForAllChannels: true
+electronUpdaterCompatibility: '>=2.16'
+mac:
+  target:
+    - zip
+    - dmg
+  artifactName: '${productName}_Mac_${version}_${arch}.${ext}'
+  extendInfo:
+    # 声音克隆向导的麦克风录音入口（缺失该描述 macOS 会静默拒绝收音）
+    NSMicrophoneUsageDescription: 'SmartSub needs microphone access to record your voice for voice cloning. SmartSub 需要使用麦克风录制您的声音以创建克隆音色。'
+  publish:
+    - provider: github
+      channel: latest
+  extraResources:
+    - from: ./extraResources/addons/
+      to: ./extraResources/addons/
+      filter:
+        - '**/*'
+    - from: ./extraResources/ggml-silero-v6.2.0.bin
+      to: ./extraResources/ggml-silero-v6.2.0.bin
+    - from: ./extraResources/sample-onboarding.mp3
+      to: ./extraResources/sample-onboarding.mp3
+    - from: ./extraResources/sherpa/
+      to: ./extraResources/sherpa/
+      filter:
+        - '**/*'
+win:
+  target:
+    - nsis
+  extraResources:
+    - from: ./extraResources/addons/
+      to: ./extraResources/addons/
+      filter:
+        - '**/*'
+    - from: ./extraResources/ggml-silero-v6.2.0.bin
+      to: ./extraResources/ggml-silero-v6.2.0.bin
+    - from: ./extraResources/sample-onboarding.mp3
+      to: ./extraResources/sample-onboarding.mp3
+    - from: ./extraResources/sherpa/
+      to: ./extraResources/sherpa/
+      filter:
+        - '**/*'
+  requestedExecutionLevel: asInvoker
+  artifactName: '${productName}_Windows_${version}_${arch}.${ext}'
+  publish:
+    - provider: github
+      channel: latest
+linux:
+  target:
+    - AppImage
+    # - tar.gz
+    - deb
+  category: AudioVideo
+  artifactName: '${productName}_Linux_${version}_${arch}.${ext}'
+  publish:
+    - provider: github
+      channel: latest
+  extraResources:
+    - from: ./extraResources/addons/
+      to: ./extraResources/addons/
+      filter:
+        - '**/*'
+    - from: ./extraResources/ggml-silero-v6.2.0.bin
+      to: ./extraResources/ggml-silero-v6.2.0.bin
+    - from: ./extraResources/sample-onboarding.mp3
+      to: ./extraResources/sample-onboarding.mp3
+    - from: ./extraResources/sherpa/
+      to: ./extraResources/sherpa/
+      filter:
+        - '**/*'
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: true
+  differentialPackage: false
+asarUnpack:
+  - 'node_modules/ffmpeg-static/bin/${os}/${arch}/ffmpeg'
+  - 'node_modules/ffmpeg-static/index.js'
+  - 'node_modules/ffmpeg-static/package.json'
+  - 'node_modules/ffmpeg-static/ffmpeg'
+  - 'node_modules/ffmpeg-static/ffmpeg.exe'
+  - 'node_modules/ffmpeg-static/ffmpeg.macos'
+  - 'node_modules/ffmpeg-static/ffmpeg.linux'
+  - 'node_modules/ffmpeg-static/ffmpeg.win32'

@@ -1,0 +1,956 @@
+/**
+ * 字幕校对相关的 IPC 处理器
+ */
+
+import { ipcMain } from 'electron';
+import {
+  detectSubtitlesForVideo,
+  matchSubtitlesByRules,
+  scanDirectoryForSubtitles,
+  smartScanDirectory,
+  validateSubtitleFile,
+} from './subtitleDetector';
+import {
+  getProofreadTasks,
+  getProofreadTaskById,
+  createProofreadTask,
+  updateProofreadTask,
+  deleteProofreadTask,
+  clearProofreadTasks,
+  updateProofreadItem,
+  completeProofreadItem,
+  addItemsToTask,
+  removeItemFromTask,
+  getTaskProgress,
+  getProofreadHistories,
+  clearProofreadHistories,
+} from './proofreadStore';
+import {
+  detectLanguageFromFilename,
+  getSupportedLanguages,
+  detectLanguagePair,
+} from './languageDetector';
+import { logMessage, store } from './storeManager';
+import { ProofreadItem } from '../../types/proofread';
+import {
+  TRANSLATOR_MAP,
+  translateWithProvider,
+} from '../translate/services/translationProvider';
+import {
+  Provider,
+  TranslationResult,
+  TranslatorFunction,
+} from '../translate/types';
+import { runWithTaskContext, isTaskCancelledError } from './taskContext';
+import { runSubtitleCorrection } from './subtitleCorrectionService';
+import {
+  buildGlossaryPromptBlock,
+  glossaryConflictFingerprint,
+  injectGlossaryPromptBlock,
+  matchGlossaryEntries,
+  selectGlossaryPromptEntries,
+} from '../glossary/core';
+import {
+  getActiveGlossaryResolution,
+  logGlossaryConflicts,
+  logGlossaryMatches,
+} from './glossaryManager';
+
+// 校对批量操作（批量 AI 优化 / 重翻失败）取消注册表
+const batchAbortControllers = new Map<string, AbortController>();
+const singleOptimizeConflictFingerprints = new WeakMap<object, string>();
+
+/**
+ * 设置字幕校对相关的 IPC 处理器
+ */
+export function setupProofreadHandlers(): void {
+  // 取消进行中的校对批量操作
+  ipcMain.handle(
+    'cancelProofreadBatch',
+    async (_event, { batchId }: { batchId: string }) => {
+      const controller = batchAbortControllers.get(batchId);
+      if (controller) {
+        controller.abort();
+        logMessage(`Proofread batch cancelled: ${batchId}`, 'info');
+        return { success: true };
+      }
+      return { success: false };
+    },
+  );
+
+  // ============ 字幕检测相关 ============
+
+  // 检测视频对应的字幕文件（不再需要语言参数）
+  ipcMain.handle(
+    'detectSubtitles',
+    async (_event, { videoPath }: { videoPath: string }) => {
+      try {
+        logMessage(`Detecting subtitles for video: ${videoPath}`, 'info');
+        // 使用空字符串让检测器自动从文件名推断
+        const result = await detectSubtitlesForVideo(videoPath, '', '');
+        logMessage(
+          `Found ${result.detectedSubtitles.length} subtitle files`,
+          'info',
+        );
+        return { success: true, data: result };
+      } catch (error) {
+        logMessage(`Error detecting subtitles: ${error}`, 'error');
+        return { success: false, error: String(error) };
+      }
+    },
+  );
+
+  // 根据规则匹配字幕文件（不再需要语言参数）
+  ipcMain.handle(
+    'matchSubtitleFiles',
+    async (_event, { files }: { files: string[] }) => {
+      try {
+        logMessage(`Matching ${files.length} subtitle files`, 'info');
+        const result = await matchSubtitlesByRules(files, '', '');
+        logMessage(`Matched ${result.length} subtitle pairs`, 'info');
+        return { success: true, data: result };
+      } catch (error) {
+        logMessage(`Error matching subtitles: ${error}`, 'error');
+        return { success: false, error: String(error) };
+      }
+    },
+  );
+
+  // 扫描目录获取字幕文件
+  ipcMain.handle(
+    'scanDirectorySubtitles',
+    async (_event, { directoryPath }: { directoryPath: string }) => {
+      try {
+        logMessage(
+          `Scanning directory for subtitles: ${directoryPath}`,
+          'info',
+        );
+        const files = await scanDirectoryForSubtitles(directoryPath);
+        logMessage(`Found ${files.length} subtitle files in directory`, 'info');
+        return { success: true, data: files };
+      } catch (error) {
+        logMessage(`Error scanning directory: ${error}`, 'error');
+        return { success: false, error: String(error) };
+      }
+    },
+  );
+
+  // 智能扫描目录（同时获取视频和字幕）
+  ipcMain.handle(
+    'smartScanDirectory',
+    async (_event, { directoryPath }: { directoryPath: string }) => {
+      try {
+        logMessage(`Smart scanning directory: ${directoryPath}`, 'info');
+        const result = await smartScanDirectory(directoryPath);
+        logMessage(
+          `Found ${result.videos.length} videos and ${result.subtitles.length} subtitles`,
+          'info',
+        );
+        return { success: true, data: result };
+      } catch (error) {
+        logMessage(`Error smart scanning directory: ${error}`, 'error');
+        return { success: false, error: String(error) };
+      }
+    },
+  );
+
+  // 验证字幕文件
+  ipcMain.handle(
+    'validateSubtitleFile',
+    async (_event, { filePath }: { filePath: string }) => {
+      try {
+        const isValid = await validateSubtitleFile(filePath);
+        return { success: true, data: isValid };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    },
+  );
+
+  // ============ 语言检测相关 ============
+
+  // 从文件名检测语言
+  ipcMain.handle(
+    'detectLanguage',
+    async (_event, { filePath }: { filePath: string }) => {
+      try {
+        const result = detectLanguageFromFilename(filePath);
+        return { success: true, data: result };
+      } catch (error) {
+        logMessage(`Error detecting language: ${error}`, 'error');
+        return { success: false, error: String(error) };
+      }
+    },
+  );
+
+  // 从多个字幕文件检测语言对
+  ipcMain.handle(
+    'detectLanguagePair',
+    async (_event, { files }: { files: string[] }) => {
+      try {
+        const userConfig = store.get('userConfig') || {};
+        const result = detectLanguagePair(
+          files,
+          userConfig.sourceLanguage,
+          userConfig.targetLanguage,
+        );
+        return { success: true, data: result };
+      } catch (error) {
+        logMessage(`Error detecting language pair: ${error}`, 'error');
+        return { success: false, error: String(error) };
+      }
+    },
+  );
+
+  // 获取支持的语言列表
+  ipcMain.handle('getSupportedLanguages', async () => {
+    try {
+      const languages = getSupportedLanguages();
+      return { success: true, data: languages };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  });
+
+  // ============ 任务管理相关 ============
+
+  // 获取所有校对任务
+  ipcMain.handle('getProofreadTasks', async () => {
+    try {
+      const tasks = getProofreadTasks();
+      return { success: true, data: tasks };
+    } catch (error) {
+      logMessage(`Error getting proofread tasks: ${error}`, 'error');
+      return { success: false, error: String(error) };
+    }
+  });
+
+  // 根据 ID 获取单个任务
+  ipcMain.handle(
+    'getProofreadTaskById',
+    async (_event, { id }: { id: string }) => {
+      try {
+        const task = getProofreadTaskById(id);
+        return { success: true, data: task };
+      } catch (error) {
+        logMessage(`Error getting proofread task: ${error}`, 'error');
+        return { success: false, error: String(error) };
+      }
+    },
+  );
+
+  // 创建新任务
+  ipcMain.handle(
+    'createProofreadTask',
+    async (
+      _event,
+      {
+        items,
+        name,
+      }: {
+        items: (Omit<
+          ProofreadItem,
+          'id' | 'lastPosition' | 'totalCount' | 'modifiedCount'
+        > & { status?: ProofreadItem['status'] })[];
+        name?: string;
+      },
+    ) => {
+      try {
+        logMessage(
+          `Creating proofread task with ${items.length} items`,
+          'info',
+        );
+        const task = createProofreadTask(items, name);
+        return { success: true, data: task };
+      } catch (error) {
+        logMessage(`Error creating proofread task: ${error}`, 'error');
+        return { success: false, error: String(error) };
+      }
+    },
+  );
+
+  // 更新任务
+  ipcMain.handle(
+    'updateProofreadTask',
+    async (
+      _event,
+      {
+        taskId,
+        updates,
+      }: {
+        taskId: string;
+        updates: any;
+      },
+    ) => {
+      try {
+        const task = updateProofreadTask(taskId, updates);
+        return { success: true, data: task };
+      } catch (error) {
+        logMessage(`Error updating proofread task: ${error}`, 'error');
+        return { success: false, error: String(error) };
+      }
+    },
+  );
+
+  // 删除任务
+  ipcMain.handle(
+    'deleteProofreadTask',
+    async (_event, { taskId }: { taskId: string }) => {
+      try {
+        logMessage(`Deleting proofread task: ${taskId}`, 'info');
+        const deleted = deleteProofreadTask(taskId);
+        return { success: true, data: deleted };
+      } catch (error) {
+        logMessage(`Error deleting proofread task: ${error}`, 'error');
+        return { success: false, error: String(error) };
+      }
+    },
+  );
+
+  // 清空所有任务
+  ipcMain.handle('clearProofreadTasks', async () => {
+    try {
+      logMessage('Clearing all proofread tasks', 'info');
+      clearProofreadTasks();
+      return { success: true };
+    } catch (error) {
+      logMessage(`Error clearing proofread tasks: ${error}`, 'error');
+      return { success: false, error: String(error) };
+    }
+  });
+
+  // ============ 项目管理相关 ============
+
+  // 更新任务中的单个项目
+  ipcMain.handle(
+    'updateProofreadItem',
+    async (
+      _event,
+      {
+        taskId,
+        itemId,
+        updates,
+      }: {
+        taskId: string;
+        itemId: string;
+        updates: Partial<Omit<ProofreadItem, 'id'>>;
+      },
+    ) => {
+      try {
+        const item = updateProofreadItem(taskId, itemId, updates);
+        return { success: true, data: item };
+      } catch (error) {
+        logMessage(`Error updating proofread item: ${error}`, 'error');
+        return { success: false, error: String(error) };
+      }
+    },
+  );
+
+  // 完成当前项目并移动到下一个
+  ipcMain.handle(
+    'completeProofreadItem',
+    async (
+      _event,
+      {
+        taskId,
+        itemId,
+      }: {
+        taskId: string;
+        itemId: string;
+      },
+    ) => {
+      try {
+        logMessage(
+          `Completing proofread item: ${itemId} in task ${taskId}`,
+          'info',
+        );
+        const result = completeProofreadItem(taskId, itemId);
+        return { success: true, data: result };
+      } catch (error) {
+        logMessage(`Error completing proofread item: ${error}`, 'error');
+        return { success: false, error: String(error) };
+      }
+    },
+  );
+
+  // 向任务添加新项目
+  ipcMain.handle(
+    'addItemsToTask',
+    async (
+      _event,
+      {
+        taskId,
+        items,
+      }: {
+        taskId: string;
+        items: Omit<
+          ProofreadItem,
+          'id' | 'status' | 'lastPosition' | 'totalCount' | 'modifiedCount'
+        >[];
+      },
+    ) => {
+      try {
+        logMessage(`Adding ${items.length} items to task ${taskId}`, 'info');
+        const task = addItemsToTask(taskId, items);
+        return { success: true, data: task };
+      } catch (error) {
+        logMessage(`Error adding items to task: ${error}`, 'error');
+        return { success: false, error: String(error) };
+      }
+    },
+  );
+
+  // 从任务中移除项目
+  ipcMain.handle(
+    'removeItemFromTask',
+    async (
+      _event,
+      {
+        taskId,
+        itemId,
+      }: {
+        taskId: string;
+        itemId: string;
+      },
+    ) => {
+      try {
+        logMessage(`Removing item ${itemId} from task ${taskId}`, 'info');
+        const task = removeItemFromTask(taskId, itemId);
+        return { success: true, data: task };
+      } catch (error) {
+        logMessage(`Error removing item from task: ${error}`, 'error');
+        return { success: false, error: String(error) };
+      }
+    },
+  );
+
+  // 获取任务进度
+  ipcMain.handle(
+    'getTaskProgress',
+    async (_event, { taskId }: { taskId: string }) => {
+      try {
+        const task = getProofreadTaskById(taskId);
+        if (!task) {
+          return { success: false, error: 'Task not found' };
+        }
+        const progress = getTaskProgress(task);
+        return { success: true, data: progress };
+      } catch (error) {
+        return { success: false, error: String(error) };
+      }
+    },
+  );
+
+  // ============ 兼容旧版本 ============
+
+  // 获取旧版历史记录（用于迁移）
+  ipcMain.handle('getProofreadHistories', async () => {
+    try {
+      const histories = getProofreadHistories();
+      return { success: true, data: histories };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  });
+
+  // 清空旧版历史记录
+  ipcMain.handle('clearProofreadHistories', async () => {
+    try {
+      clearProofreadHistories();
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  });
+
+  // ============ AI 优化相关 ============
+
+  // 获取可用的 AI 翻译服务商列表
+  ipcMain.handle('getAiTranslationProviders', async () => {
+    try {
+      const providers = store.get('translationProviders') || [];
+      const aiProviders = providers.filter((p: Provider) => p.isAi);
+      return { success: true, data: aiProviders };
+    } catch (error) {
+      logMessage(`Error getting AI providers: ${error}`, 'error');
+      return { success: false, error: String(error) };
+    }
+  });
+
+  // 优化单条字幕翻译
+  ipcMain.handle(
+    'optimizeSubtitle',
+    async (
+      event,
+      {
+        sourceText,
+        targetText,
+        providerId,
+        customPrompt,
+        mode = 'translation',
+      }: {
+        sourceText: string;
+        targetText: string;
+        providerId?: string;
+        customPrompt?: string;
+        mode?: 'translation' | 'transcript';
+      },
+    ) => {
+      try {
+        logMessage(`Optimizing subtitle translation`, 'info');
+
+        // 获取用户配置
+        const userConfig = store.get('userConfig') || {};
+
+        // 使用传入的 providerId 或用户配置中的默认服务商
+        const translateProviderId = providerId || userConfig.translateProvider;
+
+        if (!translateProviderId || translateProviderId === '-1') {
+          return {
+            success: false,
+            error: '请先选择一个 AI 翻译服务',
+          };
+        }
+
+        // 获取翻译提供商
+        const providers = store.get('translationProviders') || [];
+        const provider = providers.find(
+          (p: Provider) => p.id === translateProviderId,
+        );
+
+        if (!provider) {
+          return {
+            success: false,
+            error: '未找到选择的翻译服务',
+          };
+        }
+
+        // 检查是否为 AI 翻译服务
+        if (!provider.isAi) {
+          return {
+            success: false,
+            error: 'AI 优化功能仅支持 AI 翻译服务（如 OpenAI、Ollama 等）',
+          };
+        }
+
+        // 获取翻译器
+        const translator =
+          TRANSLATOR_MAP[provider.type as keyof typeof TRANSLATOR_MAP];
+        if (!translator) {
+          return {
+            success: false,
+            error: `不支持的翻译服务类型: ${provider.type}`,
+          };
+        }
+
+        // 获取源语言和目标语言
+        const sourceLanguage = userConfig.sourceLanguage || 'en';
+        const targetLanguage = userConfig.targetLanguage || 'zh';
+        const glossaryResolution =
+          mode === 'translation' ? getActiveGlossaryResolution() : undefined;
+        if (glossaryResolution) {
+          const fingerprint = glossaryConflictFingerprint(
+            glossaryResolution.conflicts,
+          );
+          if (
+            singleOptimizeConflictFingerprints.get(event.sender) !== fingerprint
+          ) {
+            logGlossaryConflicts(
+              glossaryResolution.conflicts,
+              '校对页单条 AI 优化',
+            );
+            singleOptimizeConflictFingerprints.set(event.sender, fingerprint);
+          }
+        }
+        const glossaryMatches = glossaryResolution
+          ? matchGlossaryEntries(glossaryResolution.entries, [sourceText])
+          : [];
+        const glossarySelection = selectGlossaryPromptEntries(glossaryMatches);
+        const glossaryBlock = buildGlossaryPromptBlock(
+          glossarySelection.included,
+        );
+        logGlossaryMatches(
+          glossarySelection.included,
+          '校对页单条 AI 优化',
+          glossarySelection.omittedCount,
+        );
+
+        // 根据是否有翻译内容选择不同的默认提示词
+        const hasTranslation = targetText && targetText.trim();
+        const defaultPrompt = hasTranslation
+          ? `You are a professional subtitle translator and proofreader. Your task is to improve the translation of the following subtitle.
+
+Original text (${sourceLanguage}):
+${sourceText}
+
+Current translation (${targetLanguage}):
+${targetText}
+
+Please provide an improved translation that:
+1. More accurately conveys the meaning of the original
+2. Uses natural and fluent ${targetLanguage} expressions
+3. Is appropriate for subtitle display (concise but complete)
+4. Maintains the tone and style of the original
+
+Only respond with the improved translation, nothing else.`
+          : `You are a professional subtitle translator. Your task is to translate the following subtitle.
+
+Original text (${sourceLanguage}):
+${sourceText}
+
+Please translate to ${targetLanguage}:
+1. Accurately convey the meaning of the original
+2. Use natural and fluent ${targetLanguage} expressions
+3. Be appropriate for subtitle display (concise but complete)
+4. Maintain the tone and style of the original
+
+Only respond with the translation, nothing else.`;
+
+        // 如果有自定义提示词，替换变量
+        let optimizePrompt = defaultPrompt;
+        if (customPrompt && customPrompt.trim()) {
+          // 处理简单的条件模板 {{#if targetText}}...{{else}}...{{/if}}
+          let processedPrompt = customPrompt;
+          if (hasTranslation) {
+            // 有翻译内容：保留 if 块，移除 else 块
+            processedPrompt = processedPrompt.replace(
+              /\{\{#if\s+targetText\}\}([\s\S]*?)\{\{else\}\}[\s\S]*?\{\{\/if\}\}/g,
+              '$1',
+            );
+          } else {
+            // 无翻译内容：移除 if 块，保留 else 块
+            processedPrompt = processedPrompt.replace(
+              /\{\{#if\s+targetText\}\}[\s\S]*?\{\{else\}\}([\s\S]*?)\{\{\/if\}\}/g,
+              '$1',
+            );
+          }
+
+          optimizePrompt = processedPrompt
+            .replace(/\{\{sourceLanguage\}\}/g, sourceLanguage)
+            .replace(/\{\{targetLanguage\}\}/g, targetLanguage)
+            .replace(/\{\{sourceText\}\}/g, sourceText)
+            .replace(/\{\{targetText\}\}/g, targetText || '');
+        }
+
+        // 调用翻译服务
+        const optimizedProvider = {
+          ...provider,
+          systemPrompt: injectGlossaryPromptBlock(
+            'You are a professional subtitle translation optimizer. Provide improved translations only, no explanations.',
+            glossaryBlock,
+          ),
+          useJsonMode: false,
+          structuredOutput: 'disabled' as const,
+        };
+
+        const result = await translator(
+          optimizePrompt,
+          optimizedProvider,
+          sourceLanguage,
+          targetLanguage,
+        );
+
+        if (result) {
+          // 清理结果，移除可能的引号或多余空白
+          const resultText = Array.isArray(result) ? result.join('\n') : result;
+          const cleanedResult = resultText
+            .trim()
+            .replace(/^["']|["']$/g, '')
+            .trim();
+          logMessage(`Subtitle optimization successful`, 'info');
+          return { success: true, data: cleanedResult };
+        } else {
+          return {
+            success: false,
+            error: 'AI 优化返回空结果',
+          };
+        }
+      } catch (error) {
+        logMessage(`Error optimizing subtitle: ${error}`, 'error');
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+  );
+
+  // 批量优化字幕
+  ipcMain.handle(
+    'batchOptimizeSubtitles',
+    async (
+      event,
+      {
+        subtitles,
+        providerId,
+        customPrompt,
+        batchSize = 5,
+        maxRetries = 2,
+        batchId,
+        mode = 'translation',
+      }: {
+        subtitles: Array<{
+          id: string;
+          index: number;
+          sourceContent: string;
+          targetContent: string;
+        }>;
+        providerId?: string;
+        customPrompt?: string;
+        batchSize?: number;
+        maxRetries?: number;
+        batchId?: string;
+        mode?: 'translation' | 'transcript';
+      },
+    ) => {
+      const abortController = new AbortController();
+      if (batchId) batchAbortControllers.set(batchId, abortController);
+      try {
+        logMessage(
+          `Starting batch optimization: ${subtitles.length} subtitles in batches of ${batchSize}`,
+          'info',
+        );
+
+        // 获取用户配置
+        const userConfig = store.get('userConfig') || {};
+        const translateProviderId = providerId || userConfig.translateProvider;
+
+        if (!translateProviderId || translateProviderId === '-1') {
+          return {
+            success: false,
+            error: '请先选择一个 AI 翻译服务',
+          };
+        }
+
+        // 获取翻译提供商
+        const providers = store.get('translationProviders') || [];
+        const provider = providers.find(
+          (p: Provider) => p.id === translateProviderId,
+        );
+
+        if (!provider) {
+          return {
+            success: false,
+            error: '未找到选择的翻译服务',
+          };
+        }
+
+        if (!provider.isAi) {
+          return {
+            success: false,
+            error: 'AI 优化功能仅支持 AI 翻译服务',
+          };
+        }
+
+        const translator =
+          TRANSLATOR_MAP[provider.type as keyof typeof TRANSLATOR_MAP];
+        if (!translator) {
+          return {
+            success: false,
+            error: `不支持的翻译服务类型: ${provider.type}`,
+          };
+        }
+
+        const sourceLanguage = userConfig.sourceLanguage || 'en';
+        const targetLanguage = userConfig.targetLanguage || 'zh';
+
+        // 批处理循环已抽取到共享校正服务（openspec: add-ai-subtitle-refine D7）：
+        // legacyMap 协议保持既有请求/响应格式、默认提示词与逐项提取规则，
+        // 校对台交互与用户缓存的自定义提示词行为不变；管线遍 B 走同一服务的
+        // anchored 协议，消除两套批处理逻辑漂移。
+        const totalBatches = Math.ceil(subtitles.length / batchSize);
+        const run = await runSubtitleCorrection({
+          items: subtitles.map((sub) => ({
+            id: sub.id,
+            index: sub.index,
+            source: sub.sourceContent,
+            target: sub.targetContent,
+          })),
+          provider,
+          translator: translator as unknown as TranslatorFunction,
+          mode,
+          protocol: 'legacyMap',
+          customPrompt,
+          sourceLanguage,
+          targetLanguage,
+          batchSize,
+          maxRetries,
+          signal: abortController.signal,
+          useGlossary: mode === 'translation',
+          glossaryLabel: '校对页批量 AI 优化',
+          onBatchProgress: (info) => {
+            event.sender.send('batchOptimizeProgress', {
+              progress: Math.round(
+                (info.processedCount / info.totalCount) * 100,
+              ),
+              currentBatch: info.currentBatch,
+              totalBatches: info.totalBatches,
+              processedCount: info.processedCount,
+              totalCount: info.totalCount,
+            });
+          },
+        });
+        const cancelled = run.cancelled;
+        const processedCount = run.processedCount;
+        const results = run.results.map((r) => ({
+          id: r.id,
+          index: r.index ?? 0,
+          sourceContent: r.source,
+          originalTarget: r.originalTarget,
+          optimizedTarget: r.corrected,
+          status: r.status,
+          ...(r.error ? { error: r.error } : {}),
+        }));
+
+        // 发送完成进度
+        event.sender.send('batchOptimizeProgress', {
+          progress: cancelled
+            ? Math.round((processedCount / subtitles.length) * 100)
+            : 100,
+          currentBatch: totalBatches,
+          totalBatches,
+          processedCount: cancelled ? processedCount : subtitles.length,
+          totalCount: subtitles.length,
+          completed: true,
+        });
+
+        logMessage(
+          `Batch optimization ${cancelled ? 'cancelled' : 'completed'}: ${results.filter((r) => r.status === 'success').length}/${subtitles.length} successful`,
+          'info',
+        );
+
+        return {
+          success: true,
+          cancelled,
+          data: {
+            results,
+            summary: {
+              total: subtitles.length,
+              success: results.filter((r) => r.status === 'success').length,
+              error: results.filter((r) => r.status === 'error').length,
+              skipped: results.filter((r) => r.status === 'skipped').length,
+            },
+          },
+        };
+      } catch (error) {
+        logMessage(`Error in batch optimization: ${error}`, 'error');
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      } finally {
+        if (batchId) batchAbortControllers.delete(batchId);
+      }
+    },
+  );
+
+  // 重翻字幕（失败集中处理）：复用正式任务翻译链路，支持取消与部分结果
+  ipcMain.handle(
+    'retranslateSubtitles',
+    async (
+      event,
+      {
+        subtitles,
+        providerId,
+        sourceLanguage,
+        targetLanguage,
+        batchId,
+      }: {
+        subtitles: Array<{
+          id: string;
+          startEndTime: string;
+          content: string[];
+        }>;
+        providerId?: string;
+        sourceLanguage?: string;
+        targetLanguage?: string;
+        batchId?: string;
+      },
+    ) => {
+      const abortController = new AbortController();
+      if (batchId) batchAbortControllers.set(batchId, abortController);
+      const collected: TranslationResult[] = [];
+      try {
+        const userConfig: any = store.get('userConfig') || {};
+        const translateProviderId = providerId || userConfig.translateProvider;
+        if (!translateProviderId || translateProviderId === '-1') {
+          return { success: false, error: 'NO_DEFAULT_PROVIDER' };
+        }
+
+        const providers = store.get('translationProviders') || [];
+        const provider = providers.find(
+          (p: Provider) => p.id === translateProviderId,
+        );
+        if (!provider) {
+          return { success: false, error: 'NO_DEFAULT_PROVIDER' };
+        }
+
+        const translator = TRANSLATOR_MAP[
+          provider.type as keyof typeof TRANSLATOR_MAP
+        ] as unknown as TranslatorFunction;
+        if (!translator) {
+          return {
+            success: false,
+            error: `不支持的翻译服务类型: ${provider.type}`,
+          };
+        }
+
+        const from = sourceLanguage || userConfig.sourceLanguage || 'en';
+        const to = targetLanguage || userConfig.targetLanguage || 'zh';
+
+        logMessage(
+          `Retranslating ${subtitles.length} subtitles with ${provider.name} (${from} -> ${to})`,
+          'info',
+        );
+
+        // 跑在任务上下文中：翻译链路批次边界的取消检查可感知 signal
+        await runWithTaskContext(
+          { signal: abortController.signal },
+          async () => {
+            await translateWithProvider(
+              provider,
+              subtitles,
+              from,
+              to,
+              translator,
+              undefined,
+              async (batchResults) => {
+                collected.push(...batchResults);
+                event.sender.send('retranslateProgress', {
+                  batchId,
+                  done: collected.length,
+                  total: subtitles.length,
+                });
+              },
+              1,
+            );
+          },
+        );
+
+        logMessage(
+          `Retranslate completed: ${collected.length}/${subtitles.length}`,
+          'info',
+        );
+        return { success: true, cancelled: false, data: collected };
+      } catch (error) {
+        if (isTaskCancelledError(error)) {
+          logMessage(
+            `Retranslate cancelled with ${collected.length}/${subtitles.length} done`,
+            'info',
+          );
+          return { success: true, cancelled: true, data: collected };
+        }
+        logMessage(`Error in retranslate: ${error}`, 'error');
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+          data: collected,
+        };
+      } finally {
+        if (batchId) batchAbortControllers.delete(batchId);
+      }
+    },
+  );
+
+  logMessage('Proofread IPC handlers initialized', 'info');
+}

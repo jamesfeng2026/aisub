@@ -1,0 +1,237 @@
+// 必须是第一个 import：放大 libuv 线程池（首个异步 I/O 后定型，不可再改）
+import './helpers/uvThreadPool';
+
+// 在最开始加载环境变量（仅开发模式；路径相对 app/ 编译产物）
+if (process.env.NODE_ENV !== 'production') {
+  require('dotenv').config({
+    path: require('path').join(__dirname, '../../.env.development.local'),
+  });
+}
+
+import path from 'path';
+import { app, protocol } from 'electron';
+import serve from 'electron-serve';
+import { createWindow } from './helpers/create-window';
+import { setupIpcHandlers } from './helpers/ipcHandlers';
+import { setupTaskProcessor } from './helpers/taskProcessor';
+import { setupSystemInfoManager } from './helpers/systemInfoManager';
+import { setupStoreHandlers, store } from './helpers/storeManager';
+import { setupTaskManager } from './helpers/taskManager';
+import {
+  initializeWorkItemStore,
+  setupWorkItemStoreLifecycle,
+} from './helpers/workItemStore';
+import { setupWorkItemHandlers } from './helpers/workItemHandlers';
+import { setupRecipeHandlers } from './helpers/ipcRecipeHandlers';
+import { setupGlossaryHandlers } from './helpers/ipcGlossaryHandlers';
+import { setupAutoUpdater } from './helpers/updater';
+import { setupAppMenu } from './helpers/menu';
+import { setupWindowCloseBehavior, markQuitting } from './helpers/windowClose';
+import { setupParameterHandlers } from './helpers/ipcParameterHandlers';
+import { setupProofreadHandlers } from './helpers/ipcProofreadHandlers';
+import { setupSubtitleMergeHandlers } from './helpers/ipcSubtitleMergeHandlers';
+import { setupDubbingHandlers } from './helpers/ipcDubbingHandlers';
+import { setupPipelineHandlers } from './helpers/ipcPipelineHandlers';
+import { setupVoiceCloneHandlers } from './helpers/ipcVoiceCloneHandlers';
+import { setupVideoDownloadHandlers } from './helpers/ipcVideoDownloadHandlers';
+import { shutdownVideoDownloads } from './helpers/videoDownload/scheduler';
+import { configurationManager } from './service/configurationManager';
+import {
+  registerAddonIpcHandlers,
+  setMainWindowForAddon,
+} from './helpers/ipcAddonHandlers';
+import {
+  registerEngineIpcHandlers,
+  setMainWindowForEngine,
+} from './helpers/ipcEngineHandlers';
+import { shutdownPythonRuntime } from './helpers/pythonRuntime';
+import { maybeAutoCheckPyEngineUpdate } from './helpers/pythonRuntime/autoUpdateCheck';
+import { cleanupLegacyPyEngine } from './helpers/pythonRuntime/legacyCleanup';
+import { applyProxyFromSettings } from './helpers/network/proxyManager';
+import { setupNetworkHandlers } from './helpers/ipcNetworkHandlers';
+import {
+  applyMacAppBranding,
+  resolveAppIcon,
+  setAppDisplayNameEarly,
+} from './helpers/appBranding';
+import { getDevSimulationConfig, getGpuEnvironment } from './helpers/cudaUtils';
+import { cleanupOldLogs } from './helpers/logStorage';
+
+//控制台出现中文乱码，需要去node_modules\electron\cli.js中修改启动代码页
+
+const isProd = process.env.NODE_ENV === 'production';
+
+// media:// 需在 webSecurity:true 下注册为 privileged scheme（必须在 app ready 之前）
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'media',
+    privileges: {
+      bypassCSP: true,
+      stream: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+    },
+  },
+]);
+
+/** 回退开关：SMARTSUB_LEGACY_WEB_SECURITY=true 恢复旧行为 */
+const useLegacyWebSecurity =
+  process.env.SMARTSUB_LEGACY_WEB_SECURITY === 'true';
+
+// 生产环境注册 app:// 协议（electron-serve 需在 app ready 之前注册 scheme）
+if (isProd) {
+  serve({ directory: 'app' });
+}
+
+// macOS 开发态：须在 ready 前设置，否则菜单栏仍显示 Electron
+setAppDisplayNameEarly();
+
+// 移除这里的 app.setPath 调用，移到 app.whenReady() 之后
+// （原注释保留）
+
+let runtimeShutdownDone = false;
+app.on('before-quit', (event) => {
+  // 真退出标记集中在 windowClose 模块，close 监听据此放行
+  markQuitting();
+  if (!runtimeShutdownDone) {
+    event.preventDefault();
+    runtimeShutdownDone = true;
+    // 同步终止下载器子进程并清理 cookie 临时副本（否则子进程变孤儿继续下载）
+    shutdownVideoDownloads();
+    void shutdownPythonRuntime().finally(() => {
+      app.exit(0);
+    });
+  }
+});
+
+(async () => {
+  // 开发模式设置独立 userData，避免与生产环境数据混淆
+  if (!isProd) {
+    app.setPath('userData', `${app.getPath('userData')}-dev`);
+  }
+
+  await app.whenReady();
+  applyMacAppBranding();
+
+  const sim = getDevSimulationConfig();
+  if (sim?.enabled) {
+    console.log(
+      `[SmartSub] CUDA dev simulation ON → platform=${sim.platform}, gpu=${sim.gpuName}`,
+    );
+  }
+
+  // 注册自定义协议处理本地媒体文件
+  protocol.registerFileProtocol('media', (request, callback) => {
+    // 查询串仅作回放缓存击穿用（配音行重合成后同名 wav 内容已变，
+    // Chromium 会按 URL 缓存媒体响应），取文件路径前剥离。
+    const url = request.url.substr(8).split('?')[0]; // 移除 "media://" 部分
+    try {
+      const decodedUrl = decodeURIComponent(url);
+      return callback({ path: decodedUrl });
+    } catch (error) {
+      console.error('Protocol handler error:', error);
+      return callback({ error: -2 });
+    }
+  });
+
+  setupStoreHandlers();
+  // 日志已迁移到按日 JSONL 文件：清理过期文件，并移除旧版本遗留在 config.json 中的 logs 键
+  void cleanupOldLogs();
+  const legacyStore = store as unknown as {
+    has(key: string): boolean;
+    delete(key: string): void;
+  };
+  if (legacyStore.has('logs')) {
+    legacyStore.delete('logs');
+  }
+  // 代理须在任何联网（providers 初始化 / 下载 / 更新检测）前生效
+  applyProxyFromSettings();
+  setupParameterHandlers();
+  setupProofreadHandlers();
+  registerAddonIpcHandlers();
+
+  // Initialize configuration manager
+  try {
+    await configurationManager.initialize();
+    console.log('Configuration Manager initialized');
+  } catch (error) {
+    console.error('Failed to initialize Configuration Manager:', error);
+  }
+
+  const settings = store.get('settings');
+  const userLanguage = settings?.language || 'zh'; // 默认为中文
+
+  const mainWindow = createWindow('main', {
+    width: 1280,
+    height: 900,
+    minWidth: 1024,
+    minHeight: 700,
+    icon: resolveAppIcon(),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      // 本地媒体经 media:// 协议加载；紧急回退 SMARTSUB_LEGACY_WEB_SECURITY=true
+      webSecurity: !useLegacyWebSecurity,
+    },
+  });
+
+  mainWindow.webContents.on('will-navigate', (e) => {
+    e.preventDefault();
+  });
+
+  // 关窗行为（macOS 智能模式 / Win·Linux 防误杀）+ Dock 激活恢复
+  setupWindowCloseBehavior(mainWindow);
+
+  if (isProd) {
+    await mainWindow.loadURL(`app://./${userLanguage}/home/`);
+  } else {
+
+    // comment  by fjm
+     const port = process.argv[2] || '8888';
+     await mainWindow.loadURL(`http://localhost:${port}/${userLanguage}/home/`);
+
+
+    // add 明确指定开发服务器的端口  by fjm 
+    // const url = 'http://localhost:8888/zh/home/';
+    // await mainWindow.loadURL(url);
+
+    // end by fjm
+
+
+    mainWindow.webContents.openDevTools();
+  }
+
+  setupAppMenu(mainWindow);
+  setupIpcHandlers(mainWindow);
+  setupNetworkHandlers();
+  setupTaskProcessor(mainWindow);
+  setupSystemInfoManager(mainWindow);
+  initializeWorkItemStore();
+  setupWorkItemStoreLifecycle();
+  setupWorkItemHandlers();
+  setupRecipeHandlers();
+  setupGlossaryHandlers(mainWindow);
+  setupTaskManager();
+  setupAutoUpdater(mainWindow);
+  setupSubtitleMergeHandlers(mainWindow);
+  setupDubbingHandlers(mainWindow);
+  setupPipelineHandlers(mainWindow);
+  setupVoiceCloneHandlers(mainWindow);
+  setupVideoDownloadHandlers(mainWindow);
+  setMainWindowForAddon(mainWindow);
+  registerEngineIpcHandlers();
+  setMainWindowForEngine(mainWindow);
+  // 清理三层架构改造前遗留的旧 py-engine 目录/状态文件（幂等，失败静默）。
+  cleanupLegacyPyEngine();
+  // 启动后每日一次的节流静默检查 faster-whisper 运行时更新（非阻塞，失败静默）。
+  void maybeAutoCheckPyEngineUpdate(mainWindow);
+  // 后台预热 GPU/CUDA 环境检测缓存：首次探测（nvcc / nvidia-smi）较慢，提前异步完成并写入
+  // 会话缓存，用户进入「引擎与模型」页时直接命中，避免首屏等待。非阻塞，失败静默。
+  void getGpuEnvironment().catch(() => {});
+})();
+
+app.on('window-all-closed', () => {
+  // macOS 惯例：关窗不退出（任务保活），其余平台正常退出
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});

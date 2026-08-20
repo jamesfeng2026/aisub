@@ -1,0 +1,132 @@
+import { useState, useRef, useEffect } from 'react';
+import ReactPlayer from 'react-player';
+import { Subtitle } from './useSubtitles';
+
+// 格式化时间为 MM:SS 格式
+export const formatTime = (seconds: number): string => {
+  if (!seconds && seconds !== 0) return '--:--';
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+};
+
+// 二分查找当前时间命中的字幕：字幕按 startTimeInSeconds 有序，
+// 找最后一个 start <= time 的行，再验证 end > time
+const findSubtitleIndexAtTime = (subs: Subtitle[], time: number): number => {
+  let lo = 0;
+  let hi = subs.length - 1;
+  let candidate = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if ((subs[mid].startTimeInSeconds ?? 0) <= time) {
+      candidate = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  if (candidate === -1) return -1;
+  return (subs[candidate].endTimeInSeconds ?? 0) > time ? candidate : -1;
+};
+
+export const useVideoPlayer = (
+  mergedSubtitles: Subtitle[],
+  currentSubtitleIndex: number,
+  setCurrentSubtitleIndex: (index: number) => void,
+) => {
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const playerRef = useRef<ReactPlayer>(null);
+
+  // 根据当前播放时间查找活跃字幕（二分索引，避免每个进度 tick 线性扫全表）
+  useEffect(() => {
+    if (currentTime >= 0 && mergedSubtitles.length > 0) {
+      const index = findSubtitleIndexAtTime(mergedSubtitles, currentTime);
+      if (index !== -1 && index !== currentSubtitleIndex) {
+        // 仅更新索引；滚动统一交给 SubtitleList 的自动滚动 effect 处理，
+        // 避免两处 scrollIntoView 同时触发导致滚动位置冲突
+        setCurrentSubtitleIndex(index);
+      }
+    }
+  }, [currentTime, mergedSubtitles]);
+
+  // 播放器进度更新
+  const handleProgress = ({ playedSeconds }) => {
+    setCurrentTime(playedSeconds);
+  };
+
+  const togglePlay = () => {
+    setIsPlaying(!isPlaying);
+  };
+
+  // 点击字幕跳转到对应时间点
+  const handleSubtitleClick = (index: number) => {
+    if (index >= 0 && index < mergedSubtitles.length) {
+      // 无论是否有视频，都要更新当前字幕索引
+      setCurrentSubtitleIndex(index);
+
+      // 如果有视频播放器，跳转到对应时间点
+      if (playerRef.current) {
+        const startTime = mergedSubtitles[index]?.startTimeInSeconds ?? 0;
+        // 增加微小偏移（10ms），避免正好落在前后字幕的边界时间点上
+        // 这样可以确保视频播放器的字幕轨道只显示当前字幕
+        // 必须显式传入 'seconds'：react-player 在 amount∈(0,1) 且未指定 type 时
+        // 会把它当作「百分比」跳转（duration * amount），导致第一条字幕(<1s)跳到视频末尾
+        playerRef.current.seekTo(startTime + 0.01, 'seconds');
+      }
+    }
+  };
+
+  // 跳转到下一个字幕
+  const goToNextSubtitle = () => {
+    const nextIndex = Math.min(
+      currentSubtitleIndex + 1,
+      mergedSubtitles.length - 1,
+    );
+    if (nextIndex !== currentSubtitleIndex && nextIndex >= 0) {
+      handleSubtitleClick(nextIndex);
+    }
+  };
+
+  // 跳转到上一个字幕
+  const goToPreviousSubtitle = () => {
+    const prevIndex = Math.max(currentSubtitleIndex - 1, 0);
+    if (prevIndex !== currentSubtitleIndex) {
+      handleSubtitleClick(prevIndex);
+    }
+  };
+
+  // 快进快退
+  const seekVideo = (seconds: number) => {
+    if (playerRef.current) {
+      const currentTime = playerRef.current.getCurrentTime();
+      // 同样显式传入 'seconds'，避免快进/快退到 (0,1) 秒区间时被当作百分比跳转
+      playerRef.current.seekTo(currentTime + seconds, 'seconds');
+    }
+  };
+
+  // 播放速度控制
+  const changePlaybackRate = (delta: number) => {
+    const newRate = Math.max(0.25, Math.min(2, playbackRate + delta));
+    setPlaybackRate(newRate);
+  };
+
+  return {
+    currentTime,
+    duration,
+    setDuration,
+    isPlaying,
+    playbackRate,
+    playerRef,
+    handleProgress,
+    togglePlay,
+    handleSubtitleClick,
+    goToNextSubtitle,
+    goToPreviousSubtitle,
+    seekVideo,
+    changePlaybackRate,
+    setPlaybackRate,
+  };
+};
